@@ -266,7 +266,7 @@ static std::vector<uint32_t> pack_tiles(
                 for (uint32_t lc = 0; lc < TILE_W; lc++) {
                     uint32_t gr = tr * TILE_H + lr, gc = tc * TILE_W + lc;
                     float v = (gr < rows && gc < cols) ? mat[gr * cols + gc] : 0.0f;
-                    uint16_t bf  = bfloat16(v).to_uint16();
+                    uint16_t bf  = static_cast<uint16_t>(pack_two_bfloat16_into_uint32({bfloat16(v), bfloat16(0.0f)}) & 0xFFFFu);
                     uint32_t idx = tile_element_u32_idx(lr, lc);
                     if (tile_element_is_hi(lc % FACE_W))
                         out[base + idx] = (out[base + idx] & 0x0000FFFFu) | (static_cast<uint32_t>(bf) << 16);
@@ -296,7 +296,7 @@ static std::vector<float> unpack_tiles(
                     uint16_t bf   = tile_element_is_hi(lc % FACE_W)
                                     ? static_cast<uint16_t>(word >> 16)
                                     : static_cast<uint16_t>(word & 0xFFFFu);
-                    out[gr * cols + gc] = bfloat16(bf).to_float();
+                    out[gr * cols + gc] = [&]{ uint32_t u = static_cast<uint32_t>(bf) << 16; float fv; std::memcpy(&fv, &u, sizeof(fv)); return fv; }();
                 }
             }
         }
@@ -533,8 +533,8 @@ private:
         auto make_cb = [&](CB cb_id, uint32_t num_tiles_per_core) {
             CircularBufferConfig cfg(
                 num_tiles_per_core * TILE_BYTES,
-                {{cb_id, tt::DataFormat::Float16_b}})
-                .set_page_size(cb_id, TILE_BYTES);
+                {{cb_id, tt::DataFormat::Float16_b}});
+            cfg.set_page_size(cb_id, TILE_BYTES);
             CreateCircularBuffer(program, active_range, cfg);
         };
 
@@ -578,7 +578,7 @@ private:
             bfloat16  bf_scale(scales[i]);
 
             // Reader: dram_addr, nt_r, nt_c, pivot_row, pivot_tile_col
-            SetRuntimeArgs(program, reader, core, {
+            SetRuntimeArgs(program, reader, core, std::vector<uint32_t>{
                 dram_addr,
                 nt_r,
                 nt_c,
@@ -587,16 +587,16 @@ private:
             });
 
             // Compute: rows, nt_c, pivot_row, pivot_local_col, scale (bf16)
-            SetRuntimeArgs(program, compute, core, {
+            SetRuntimeArgs(program, compute, core, std::vector<uint32_t>{
                 rows,
                 nt_c,
                 pivot_rows[i],
                 pivot_cols[i] % TILE_W,
-                static_cast<uint32_t>(bf_scale.to_uint16()),
+                static_cast<uint32_t>(pack_two_bfloat16_into_uint32({bf_scale, bfloat16(0.0f)}) & 0xFFFFu),
             });
 
             // Writer: dram_addr, nt_r, nt_c
-            SetRuntimeArgs(program, writer, core, {
+            SetRuntimeArgs(program, writer, core, std::vector<uint32_t>{
                 dram_addr,
                 nt_r,
                 nt_c,
