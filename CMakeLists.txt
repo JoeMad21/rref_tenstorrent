@@ -3,16 +3,27 @@ project(rref_accelerator)
 
 set(CMAKE_CXX_STANDARD 20)
 
-# Find the tt-metal installation
-list(APPEND CMAKE_PREFIX_PATH $ENV{TT_METAL_HOME})
-find_package(TTMetal REQUIRED)
+set(TT_METAL_ROOT "/mnt/nvme10/joseph_ufl/tt-metal")
+set(TT_METAL_BUILD "${TT_METAL_ROOT}/build_Release")
+
+include_directories(
+    ${TT_METAL_BUILD}/include
+    ${TT_METAL_BUILD}/include/tt-metalium
+    ${TT_METAL_ROOT}/tt_metal/api
+    ${TT_METAL_ROOT}/tt_metal/api/tt-metalium
+    ${TT_METAL_ROOT}/.cpmcache/spdlog/b1c2586bb5c35a7929362e87f62433eb68206873/include
+)
+
+link_directories(${TT_METAL_BUILD}/lib)
 
 add_executable(rref_host rref_host.cpp)
 
 target_link_libraries(rref_host PRIVATE
-    TTMetal::tt_metal
-    TTMetal::tt_metal_distributed
+    tt_metal
+    fmt
 )
 
-# Kernel files are loaded at runtime by path — just ensure they're present
-# relative to the working directory when you run the binary.
+set_target_properties(rref_host PROPERTIES
+    BUILD_RPATH "${TT_METAL_BUILD}/lib"
+    INSTALL_RPATH "${TT_METAL_BUILD}/lib"
+)
